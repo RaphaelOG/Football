@@ -1,14 +1,10 @@
 #include "AI.h"
+#include "MatchStats.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
 using namespace Constants;
-
-static float distSq(const sf::Vector2f& a, const sf::Vector2f& b) {
-    float dx = a.x - b.x, dy = a.y - b.y;
-    return dx * dx + dy * dy;
-}
 
 static Player* findNearest(const std::vector<Player>& players, const sf::Vector2f& pos, Player* exclude = nullptr) {
     Player* best = nullptr;
@@ -21,103 +17,115 @@ static Player* findNearest(const std::vector<Player>& players, const sf::Vector2
     return best;
 }
 
+static int countNearbyOpponents(const sf::Vector2f& pos, const Team& opponent, float range) {
+    int count = 0;
+    for (const auto& opp : opponent.getPlayers()) {
+        if (length(opp.getPosition() - pos) < range) ++count;
+    }
+    return count;
+}
+
 void AI::updateGoalkeeper(Player& gk, const Ball& ball, TeamSide side, bool defendsLeftGoal, float dt) {
     (void)dt;
     (void)side;
     float goalX = defendsLeftGoal ? 0.f : FIELD_LENGTH;
     float goalY = FIELD_WIDTH / 2.f;
 
-    sf::Vector2f target(goalX + (defendsLeftGoal ? 2.f : -2.f), goalY);
-
+    sf::Vector2f target(goalX + (defendsLeftGoal ? 2.5f : -2.5f), goalY);
     sf::Vector2f ballPos = ball.getPosition();
     float ballDistX = std::abs(ballPos.x - goalX);
 
-    if (ballDistX < 25.f) {
+    if (ballDistX < 30.f) {
         target.y = ballPos.y;
-        target.y = std::max(2.f, std::min(FIELD_WIDTH - 2.f, target.y));
+        target.y = std::max(3.f, std::min(FIELD_WIDTH - 3.f, target.y));
     }
 
     if (defendsLeftGoal) {
-        target.x = std::min(target.x, PENALTY_AREA_LENGTH);
+        target.x = std::min(target.x, PENALTY_AREA_LENGTH + 1.f);
     } else {
-        target.x = std::max(target.x, FIELD_LENGTH - PENALTY_AREA_LENGTH);
+        target.x = std::max(target.x, FIELD_LENGTH - PENALTY_AREA_LENGTH - 1.f);
     }
 
     gk.setTargetPosition(target);
-
-    // Attempt to grab ball if close
-    if (length(ballPos - gk.getPosition()) < POSSESSION_DIST + 0.5f && !ball.getOwner()) {
-        // GK will get possession via game logic
-    }
 }
 
 sf::Vector2f AI::getDefensivePosition(const Player& player, const Ball& ball, bool attacksRight) {
     sf::Vector2f home = player.getHomePosition();
     sf::Vector2f ballPos = ball.getPosition();
+    float ownGoalX = attacksRight ? 0.f : FIELD_LENGTH;
 
-    float defendLineX = attacksRight ?
-        std::min(ballPos.x - 8.f, FIELD_LENGTH * 0.45f) :
-        std::max(ballPos.x + 8.f, FIELD_LENGTH * 0.55f);
+    float urgency = std::max(0.f, 1.f - std::abs(ballPos.x - ownGoalX) / (FIELD_LENGTH * 0.5f));
+    float shiftTowardBall = 0.35f + urgency * 0.35f;
 
     sf::Vector2f target = home;
-    target.x = defendLineX * 0.4f + home.x * 0.6f;
+    target.x = home.x * (1.f - shiftTowardBall) + (ballPos.x - (attacksRight ? 6.f : -6.f)) * shiftTowardBall;
+    target.y = home.y * 0.6f + ballPos.y * 0.4f;
 
     if (player.getRole() == PlayerRole::Defender) {
-        target.x = defendLineX * 0.6f + home.x * 0.4f;
+        target.x = home.x * 0.35f + (ballPos.x - (attacksRight ? 10.f : -10.f)) * 0.65f;
     }
 
+    target.x = std::max(3.f, std::min(FIELD_LENGTH - 3.f, target.x));
+    target.y = std::max(3.f, std::min(FIELD_WIDTH - 3.f, target.y));
     return target;
 }
 
 sf::Vector2f AI::getAttackingPosition(const Player& player, const Ball& ball, bool attacksRight) {
     sf::Vector2f home = player.getHomePosition();
     sf::Vector2f ballPos = ball.getPosition();
-
     float attackDir = attacksRight ? 1.f : -1.f;
     sf::Vector2f target = home;
 
     switch (player.getRole()) {
         case PlayerRole::Striker:
-            target.x = ballPos.x + attackDir * 8.f;
-            target.y = home.y + (ballPos.y - FIELD_WIDTH / 2.f) * 0.3f;
+            target.x = ballPos.x + attackDir * 12.f;
+            target.y = home.y + (ballPos.y - FIELD_WIDTH / 2.f) * 0.35f;
             break;
         case PlayerRole::Midfielder:
-            target.x = ballPos.x - attackDir * 5.f;
-            target.y = home.y + (ballPos.y - home.y) * 0.4f;
+            target.x = ballPos.x + attackDir * 4.f;
+            target.y = home.y + (ballPos.y - home.y) * 0.5f;
             break;
         case PlayerRole::Defender:
-            target.x = ballPos.x - attackDir * 18.f;
+            target.x = ballPos.x - attackDir * 14.f;
             break;
         default:
             break;
     }
 
-    target.x = std::max(2.f, std::min(FIELD_LENGTH - 2.f, target.x));
-    target.y = std::max(2.f, std::min(FIELD_WIDTH - 2.f, target.y));
+    target.x = std::max(3.f, std::min(FIELD_LENGTH - 3.f, target.x));
+    target.y = std::max(3.f, std::min(FIELD_WIDTH - 3.f, target.y));
     return target;
 }
 
-Player* AI::findBestPassTarget(const Player& passer, const Team& team, const Team& opponent) {
+Player* AI::findBestPassTarget(const Player& passer, const Team& team, const Team& opponent,
+                               const Player* preferTarget, bool allowBackward) {
     Player* best = nullptr;
     float bestScore = -99999.f;
     sf::Vector2f passDir = passer.getTeam() == TeamSide::Home ? sf::Vector2f(1, 0) : sf::Vector2f(-1, 0);
+    const Player* human = team.getControlledPlayer();
 
     for (const auto& tm : team.getPlayers()) {
         if (&tm == &passer || tm.isGoalkeeper()) continue;
 
         sf::Vector2f toTm = tm.getPosition() - passer.getPosition();
         float dist = length(toTm);
-        if (dist < 3.f || dist > 40.f) continue;
+        if (dist < 2.f || dist > 45.f) continue;
 
         float forward = toTm.x * passDir.x + toTm.y * passDir.y;
-        float score = forward * 2.f - dist * 0.3f;
+        if (!allowBackward && forward < -2.f) continue;
 
-        // Penalize if opponent nearby
-        for (const auto& opp : opponent.getPlayers()) {
-            if (length(opp.getPosition() - tm.getPosition()) < 4.f) {
-                score -= 5.f;
-            }
+        float score = forward * 1.5f - dist * 0.2f;
+
+        int nearbyOpps = countNearbyOpponents(tm.getPosition(), opponent, 4.f);
+        score -= nearbyOpps * 4.f;
+
+        if (preferTarget && &tm == preferTarget) score += 25.f;
+        if (human && &tm == human && &tm != &passer) {
+            score += 18.f;
+            if (nearbyOpps == 0) score += 10.f;
         }
+
+        if (tm.getRole() == PlayerRole::Striker && forward > 0.f) score += 3.f;
 
         if (score > bestScore) {
             bestScore = score;
@@ -127,19 +135,21 @@ Player* AI::findBestPassTarget(const Player& passer, const Team& team, const Tea
     return best;
 }
 
-void AI::updateTeam(Team& team, Team& opponent, Ball& ball, float dt, bool isHumanTeam) {
+void AI::updateTeam(Team& team, Team& opponent, Ball& ball, float dt, bool isHumanTeam, MatchStats& stats) {
     (void)dt;
     bool attacksRight = team.attacksRight();
     bool teamHasBall = false;
-  Player* ballOwner = ball.getOwner();
+    Player* ballOwner = ball.getOwner();
 
     if (ballOwner) {
         teamHasBall = ballOwner->getTeam() == team.getSide();
     }
 
+    sf::Vector2f ballPos = ball.getPosition();
+    float ownGoalX = attacksRight ? 0.f : FIELD_LENGTH;
+
     for (auto& player : team.getPlayers()) {
         bool isControlled = isHumanTeam && team.getControlledPlayer() == &player;
-
         if (isControlled) continue;
 
         if (player.isGoalkeeper()) {
@@ -148,87 +158,93 @@ void AI::updateTeam(Team& team, Team& opponent, Ball& ball, float dt, bool isHum
             continue;
         }
 
-        sf::Vector2f target;
-
         if (ballOwner == &player) {
-            // Player has ball - dribble toward goal
             float dir = attacksRight ? 1.f : -1.f;
             float goalX = attacksRight ? FIELD_LENGTH : 0.f;
             sf::Vector2f toGoal(goalX - player.getPosition().x, FIELD_WIDTH / 2.f - player.getPosition().y);
-
-            // AI decision: shoot, pass, or dribble
             float distToGoal = std::abs(player.getPosition().x - goalX);
             Player* nearestOpp = findNearest(opponent.getPlayers(), player.getPosition());
+            float pressure = nearestOpp ? length(nearestOpp->getPosition() - player.getPosition()) : 99.f;
 
-            if (distToGoal < 22.f && distToGoal > 5.f) {
-                // Shoot
-                player.kickBall(ball, toGoal, SHOOT_POWER * (0.8f + (22.f - distToGoal) / 30.f));
-            } else if (nearestOpp && length(nearestOpp->getPosition() - player.getPosition()) < 4.f) {
-                // Pass under pressure
-                Player* target_ = findBestPassTarget(player, team, opponent);
-                if (target_) {
-                    sf::Vector2f passDir = target_->getPosition() - player.getPosition();
-                    player.kickBall(ball, passDir, PASS_POWER);
+            const Player* passToHuman = isHumanTeam ? team.getControlledPlayer() : nullptr;
+            bool humanOpen = passToHuman && passToHuman != &player &&
+                             countNearbyOpponents(passToHuman->getPosition(), opponent, 5.f) == 0;
+
+            if (distToGoal < 24.f && distToGoal > 6.f && pressure > 3.f) {
+                player.kickBall(ball, toGoal, SHOOT_POWER * (0.85f + (24.f - distToGoal) / 35.f), KickType::Shoot);
+                stats.recordShot(team.getSide());
+            } else if (pressure < 5.f || humanOpen) {
+                Player* target = findBestPassTarget(player, team, opponent, passToHuman, humanOpen);
+                if (target) {
+                    sf::Vector2f passDir = target->getPosition() - player.getPosition();
+                    float power = humanOpen && target == passToHuman ? PASS_POWER * 1.1f : PASS_POWER;
+                    player.kickBall(ball, passDir, power, KickType::Pass);
+                    stats.recordPass(team.getSide());
+                } else if (distToGoal < 30.f) {
+                    player.kickBall(ball, toGoal, SHOOT_POWER * 0.6f, KickType::Shoot);
+                    stats.recordShot(team.getSide());
                 } else {
-                    player.kickBall(ball, toGoal, SHOOT_POWER * 0.5f);
+                    player.setTargetPosition(player.getPosition() + sf::Vector2f(dir * 5.f, 0.f));
                 }
             } else {
-                // Dribble forward
-                target = player.getPosition() + sf::Vector2f(dir * 6.f, 0.f);
+                sf::Vector2f dribble = player.getPosition() + sf::Vector2f(dir * 5.f, 0.f);
                 if (nearestOpp) {
                     sf::Vector2f away = player.getPosition() - nearestOpp->getPosition();
-                    if (length(away) > 0.1f) {
-                        target += normalized(away) * 3.f;
-                    }
+                    if (length(away) > 0.1f) dribble += normalized(away) * 2.5f;
                 }
-                player.setTargetPosition(target);
+                player.setTargetPosition(dribble);
             }
             continue;
         }
 
-        // Chase loose ball if nearest
-        if (!ballOwner) {
-            Player* nearest = findNearest(team.getPlayers(), ball.getPosition());
-            if (nearest == &player) {
-                player.setTargetPosition(ball.getPosition());
-                continue;
-            }
-        }
-
-        // Mark opponent or support
         if (!teamHasBall) {
-            // Defensive
-            Player* dangerous = findNearest(opponent.getPlayers(), sf::Vector2f(
-                attacksRight ? FIELD_LENGTH * 0.3f : FIELD_LENGTH * 0.7f,
-                FIELD_WIDTH / 2.f
-            ));
+            Player* carrier = ballOwner && ballOwner->getTeam() != team.getSide() ? ballOwner : nullptr;
 
-            if (player.getRole() == PlayerRole::Defender && dangerous && dangerous != opponent.getGoalkeeper()) {
-                sf::Vector2f markPos = dangerous->getPosition();
-                float goalX = attacksRight ? 0.f : FIELD_LENGTH;
-                markPos.x = markPos.x * 0.6f + goalX * 0.4f;
-                player.setTargetPosition(markPos);
-            } else {
-                player.setTargetPosition(getDefensivePosition(player, ball, attacksRight));
-            }
+            if (carrier) {
+                float distToCarrier = length(player.getPosition() - carrier->getPosition());
+                bool shouldPress = distToCarrier < 22.f &&
+                    (player.getRole() != PlayerRole::Striker || distToCarrier < 14.f);
 
-            // Tackle attempt
-            if (ballOwner && ballOwner->getTeam() != team.getSide()) {
-                if (length(player.getPosition() - ballOwner->getPosition()) < TACKLE_RANGE + 1.f) {
-                    player.attemptTackle(ball, *ballOwner);
+                if (shouldPress && distToCarrier < 16.f) {
+                    sf::Vector2f pressPos = carrier->getPosition();
+                    float goalSide = attacksRight ? -1.f : 1.f;
+                    pressPos.x += goalSide * 1.5f;
+                    player.setTargetPosition(pressPos);
+
+                    if (distToCarrier < TACKLE_RANGE + 1.5f) {
+                        player.attemptTackle(ball, *carrier);
+                        stats.recordTackle(team.getSide());
+                    }
+                    continue;
+                }
+
+                if (player.getRole() == PlayerRole::Defender && distToCarrier < 35.f) {
+                    sf::Vector2f markPos = carrier->getPosition();
+                    markPos.x = markPos.x * 0.55f + ownGoalX * 0.45f;
+                    markPos.y = markPos.y * 0.7f + player.getHomePosition().y * 0.3f;
+                    player.setTargetPosition(markPos);
+                    continue;
                 }
             }
+
+            if (!ballOwner) {
+                Player* chaser = findNearest(team.getPlayers(), ballPos);
+                if (chaser == &player) {
+                    player.setTargetPosition(ballPos);
+                    continue;
+                }
+            }
+
+            player.setTargetPosition(getDefensivePosition(player, ball, attacksRight));
         } else {
-            // Attacking support
             player.setTargetPosition(getAttackingPosition(player, ball, attacksRight));
 
-            // Make run if striker and teammate has ball
             if (ballOwner && ballOwner->getTeam() == team.getSide() && ballOwner != &player) {
                 if (player.getRole() == PlayerRole::Striker) {
                     float dir = attacksRight ? 1.f : -1.f;
                     sf::Vector2f runPos = player.getPosition();
-                    runPos.x += dir * 10.f;
-                    runPos.y += (static_cast<float>(rand() % 100) / 100.f - 0.5f) * 8.f;
+                    runPos.x += dir * 12.f;
+                    runPos.y += (static_cast<float>(rand() % 100) / 100.f - 0.5f) * 10.f;
                     player.setTargetPosition(runPos);
                 }
             }

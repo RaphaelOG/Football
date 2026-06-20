@@ -1,0 +1,25 @@
+# Build directories
+build/
+build-win/
+out/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled binaries & libraries
+*.exe
+*.dll
+*.a
+*.lib
+*.o
+*.obj
+
+# IDE
+.vs/
+.vscode/
+*.user

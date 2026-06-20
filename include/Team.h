@@ -15,7 +15,9 @@ public:
     Player* getControlledPlayer() { return controlledPlayer_; }
     const Player* getControlledPlayer() const { return controlledPlayer_; }
     void setControlledPlayer(Player* player) { controlledPlayer_ = player; }
-    void switchToNearestPlayer(const sf::Vector2f& ballPos, bool excludeGK = false);
+    void switchToNearestPlayer(const sf::Vector2f& ballPos, bool excludeGK = true);
+    void switchToNextOutfieldPlayer();
+    void switchToBallHolder();
 
     std::vector<Player>& getPlayers() { return players_; }
     const std::vector<Player>& getPlayers() const { return players_; }

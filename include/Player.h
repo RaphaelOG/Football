@@ -2,6 +2,7 @@
 
 #include "Constants.h"
 #include <SFML/Graphics/CircleShape.hpp>
+#include <SFML/Graphics/ConvexShape.hpp>
 #include <string>
 
 using namespace Constants;
@@ -25,7 +26,7 @@ public:
     void setTargetPosition(const sf::Vector2f& target);
     void setMoveInput(const sf::Vector2f& input, bool sprint);
     void attemptTackle(Ball& ball, Player& opponent);
-    void kickBall(Ball& ball, const sf::Vector2f& direction, float power);
+    void kickBall(Ball& ball, const sf::Vector2f& direction, float power, KickType type = KickType::Pass);
     bool hasBall(const Ball& ball) const;
     void takePossession(Ball& ball);
 
@@ -43,6 +44,8 @@ public:
     bool isGoalkeeper() const { return role_ == Position::GK; }
     float getStamina() const { return stamina_; }
     bool canTackle() const { return tackleCooldown_ <= 0.f; }
+    int getJerseyNumber() const { return id_ + 1; }
+    float getFacingAngle() const;
 
 private:
     int id_;
@@ -61,6 +64,8 @@ private:
     bool sprinting_;
     bool controlled_;
 
-    mutable sf::CircleShape shape_;
+    mutable sf::CircleShape shadow_;
+    mutable sf::CircleShape body_;
     mutable sf::CircleShape highlight_;
+    mutable sf::ConvexShape direction_;
 };

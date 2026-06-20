@@ -20,7 +20,7 @@ A playable top-down 11 vs 11 soccer game written in C++ with SFML.
 - CMake 3.16+
 - Internet connection for first build (SFML is downloaded automatically)
 
-## Build & Run
+## Build & Run MAC
 
 ```bash
 chmod +x build.sh
@@ -36,6 +36,9 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j
 ./Football11v11
 ```
+## Windows Run
+cd build-win
+.\Football11v11.exe
 
 ## Controls
 

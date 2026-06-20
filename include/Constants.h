@@ -44,6 +44,10 @@ constexpr float MATCH_DURATION    = 540.0f;  // 9 min real = 90 min game
 constexpr float HALF_DURATION     = MATCH_DURATION / 2.0f;
 constexpr float GOAL_CELEBRATION  = 3.0f;
 constexpr float KICKOFF_DELAY     = 1.5f;
+constexpr float SET_PIECE_DELAY   = 1.5f;
+constexpr float OOB_COOLDOWN      = 2.5f;
+constexpr float FOUL_CHANCE       = 0.08f;
+constexpr float FIELD_INSET       = 2.0f;
 
 // Window / camera
 constexpr int   WINDOW_WIDTH  = 1280;
@@ -64,12 +68,26 @@ enum class Position {
 enum class TeamSide { Home, Away };
 
 enum class MatchState {
+    MainMenu,
     Kickoff,
     Playing,
     GoalCelebration,
     HalfTime,
     FullTime,
-    Paused
+    Paused,
+    ThrowIn,
+    GoalKick,
+    CornerKick
+};
+
+enum class KickType { Pass, Shoot, LongPass };
+
+enum class OutOfBoundsType { None, ThrowIn, GoalKick, CornerKick };
+
+struct SetPieceInfo {
+    OutOfBoundsType type = OutOfBoundsType::None;
+    TeamSide takingTeam = TeamSide::Home;
+    sf::Vector2f position = {0.f, 0.f};
 };
 
 enum class PlayerRole {

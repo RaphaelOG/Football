@@ -15,7 +15,7 @@ public:
     void update(float dt, const class Field& field);
     void draw(sf::RenderTarget& target, const sf::Vector2f& cameraCenter) const;
 
-    void kick(const sf::Vector2f& direction, float power);
+    void kick(const sf::Vector2f& direction, float power, Player* kicker = nullptr, KickType type = KickType::Pass);
     void applyForce(const sf::Vector2f& force);
     void collideWithPlayer(const Player& player);
 
@@ -27,9 +27,20 @@ public:
     void setOwner(Player* owner) { owner_ = owner; }
     void release() { owner_ = nullptr; }
 
+    Player* getLastKicker() const { return lastKicker_; }
+    TeamSide getLastTouchTeam() const { return lastTouchTeam_; }
+    KickType getLastKickType() const { return lastKickType_; }
+    bool isOutOfPlay() const { return outOfPlay_; }
+    void setOutOfPlay(bool out) { outOfPlay_ = out; }
+
 private:
     sf::Vector2f position_;
     sf::Vector2f velocity_;
     Player* owner_;
+    Player* lastKicker_;
+    TeamSide lastTouchTeam_;
+    KickType lastKickType_;
+    bool outOfPlay_;
     mutable sf::CircleShape shape_;
+    mutable sf::CircleShape trail_;
 };

@@ -22,6 +22,7 @@ add_executable(Football11v11
     src/Team.cpp
     src/AI.cpp
     src/Renderer.cpp
+    src/MatchStats.cpp
 )
 
 target_include_directories(Football11v11 PRIVATE include)
@@ -34,4 +35,14 @@ target_link_libraries(Football11v11 PRIVATE
 
 if(APPLE)
     target_link_libraries(Football11v11 PRIVATE "-framework IOKit" "-framework Cocoa")
+endif()
+
+if(WIN32)
+    add_custom_command(TARGET Football11v11 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:sfml-system>
+            $<TARGET_FILE:sfml-window>
+            $<TARGET_FILE:sfml-graphics>
+            $<TARGET_FILE_DIR:Football11v11>
+    )
 endif()

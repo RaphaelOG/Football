@@ -1,6 +1,7 @@
 #include "Player.h"
 #include "Ball.h"
 #include "Field.h"
+#include <cmath>
 
 using namespace Constants;
 
@@ -8,14 +9,26 @@ Player::Player(int id, TeamSide team, Position pos, const std::string& name)
     : id_(id), team_(team), role_(pos), name_(name),
       stamina_(100.f), tackleCooldown_(0.f), sprinting_(false), controlled_(false) {
     float radius = isGoalkeeper() ? GK_RADIUS : PLAYER_RADIUS;
-    shape_.setRadius(radius * PIXELS_PER_METER);
-    shape_.setOrigin(radius * PIXELS_PER_METER, radius * PIXELS_PER_METER);
+    float px = radius * PIXELS_PER_METER;
 
-    highlight_.setRadius((radius + 0.4f) * PIXELS_PER_METER);
-    highlight_.setOrigin((radius + 0.4f) * PIXELS_PER_METER, (radius + 0.4f) * PIXELS_PER_METER);
+    body_.setRadius(px);
+    body_.setOrigin(px, px);
+    body_.setOutlineThickness(2.f);
+    body_.setOutlineColor(sf::Color(0, 0, 0, 100));
+
+    shadow_.setRadius(px * 0.9f);
+    shadow_.setOrigin(px * 0.9f, px * 0.9f);
+    shadow_.setFillColor(sf::Color(0, 0, 0, 60));
+    shadow_.setScale(1.f, 0.55f);
+
+    highlight_.setRadius((radius + 0.55f) * PIXELS_PER_METER);
+    highlight_.setOrigin(highlight_.getRadius(), highlight_.getRadius());
     highlight_.setFillColor(sf::Color::Transparent);
-    highlight_.setOutlineThickness(2.f);
-    highlight_.setOutlineColor(sf::Color::Yellow);
+    highlight_.setOutlineThickness(3.f);
+    highlight_.setOutlineColor(sf::Color(255, 230, 50, 220));
+
+    direction_.setPointCount(3);
+    direction_.setFillColor(sf::Color(255, 255, 255, 200));
 }
 
 void Player::reset(const sf::Vector2f& position) {
@@ -36,6 +49,14 @@ PlayerRole Player::getRole() const {
         case Position::CM: case Position::LM: case Position::RM: case Position::CDM: return PlayerRole::Midfielder;
         default: return PlayerRole::Striker;
     }
+}
+
+float Player::getFacingAngle() const {
+    sf::Vector2f dir = velocity_;
+    if (length(dir) < 0.3f) {
+        dir = team_ == TeamSide::Home ? sf::Vector2f(1.f, 0.f) : sf::Vector2f(-1.f, 0.f);
+    }
+    return std::atan2(dir.y, dir.x) * 180.f / 3.14159265f;
 }
 
 void Player::update(float dt, bool isControlled) {
@@ -69,7 +90,6 @@ void Player::update(float dt, bool isControlled) {
     }
     velocity_ += accel;
 
-    // Friction
     float speed = length(velocity_);
     if (speed > 0.01f) {
         float friction = PLAYER_FRICTION * dt;
@@ -82,11 +102,9 @@ void Player::update(float dt, bool isControlled) {
 
     position_ += velocity_ * dt;
 
-    // Keep on field
     position_.x = std::max(PLAYER_RADIUS, std::min(FIELD_LENGTH - PLAYER_RADIUS, position_.x));
     position_.y = std::max(PLAYER_RADIUS, std::min(FIELD_WIDTH - PLAYER_RADIUS, position_.y));
 
-    // GK stays in penalty box
     if (isGoalkeeper()) {
         float boxDepth = PENALTY_AREA_LENGTH + 2.f;
         if (team_ == TeamSide::Home) {
@@ -98,19 +116,44 @@ void Player::update(float dt, bool isControlled) {
 }
 
 void Player::draw(sf::RenderTarget& target, const sf::Vector2f& cameraCenter, bool isControlled) const {
-    sf::Color color = team_ == TeamSide::Home ? homeColor() : awayColor();
-    if (isGoalkeeper()) color = sf::Color(
-        static_cast<sf::Uint8>(color.r * 0.7f),
-        static_cast<sf::Uint8>(color.g * 0.7f),
-        static_cast<sf::Uint8>(color.b * 0.7f)
-    );
+    sf::Vector2f screen = Field::worldToScreen(position_, cameraCenter);
+    float px = body_.getRadius();
 
-    shape_.setFillColor(color);
-    shape_.setPosition(Field::worldToScreen(position_, cameraCenter));
-    target.draw(shape_);
+    shadow_.setPosition(screen.x + 2.f, screen.y + 4.f);
+    target.draw(shadow_);
+
+    sf::Color color = team_ == TeamSide::Home ? homeColor() : awayColor();
+    sf::Color shorts = sf::Color(
+        static_cast<sf::Uint8>(color.r * 0.55f),
+        static_cast<sf::Uint8>(color.g * 0.55f),
+        static_cast<sf::Uint8>(color.b * 0.55f));
+
+    if (isGoalkeeper()) {
+        color = sf::Color(40, 40, 40);
+        shorts = sf::Color(30, 30, 30);
+    }
+
+    body_.setFillColor(color);
+    body_.setPosition(screen);
+    target.draw(body_);
+
+    sf::CircleShape shortsMark(px * 0.55f);
+    shortsMark.setOrigin(px * 0.55f, px * 0.55f);
+    shortsMark.setFillColor(shorts);
+    shortsMark.setPosition(screen.x, screen.y + px * 0.15f);
+    target.draw(shortsMark);
+
+    float angle = getFacingAngle();
+    direction_.setPosition(screen);
+    direction_.setRotation(angle);
+    float tip = px * 0.85f;
+    direction_.setPoint(0, {tip, 0.f});
+    direction_.setPoint(1, {-px * 0.35f, px * 0.4f});
+    direction_.setPoint(2, {-px * 0.35f, -px * 0.4f});
+    target.draw(direction_);
 
     if (isControlled) {
-        highlight_.setPosition(Field::worldToScreen(position_, cameraCenter));
+        highlight_.setPosition(screen);
         target.draw(highlight_);
     }
 }
@@ -135,13 +178,13 @@ void Player::attemptTackle(Ball& ball, Player& opponent) {
 
     if (ball.getOwner() == &opponent) {
         ball.release();
-        ball.kick(-dir, 6.f);
+        ball.kick(-dir, 6.f, this, KickType::Pass);
     }
 }
 
-void Player::kickBall(Ball& ball, const sf::Vector2f& direction, float power) {
+void Player::kickBall(Ball& ball, const sf::Vector2f& direction, float power, KickType type) {
     if (!hasBall(ball)) return;
-    ball.kick(direction, power);
+    ball.kick(direction, power, this, type);
 }
 
 bool Player::hasBall(const Ball& ball) const {
@@ -151,4 +194,5 @@ bool Player::hasBall(const Ball& ball) const {
 void Player::takePossession(Ball& ball) {
     ball.setOwner(this);
     ball.setVelocity(velocity_);
+    ball.setOutOfPlay(false);
 }

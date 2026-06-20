@@ -39,14 +39,13 @@ void Team::setupFormation() {
         players_.emplace_back(i, side_, FORMATION_442[i].position, names[i]);
     }
 
-    // Default controlled: striker
     for (auto& p : players_) {
-        if (p.getPositionRole() == Position::ST) {
+        if (p.getPositionRole() == Position::CM) {
             controlledPlayer_ = &p;
             break;
         }
     }
-    if (!controlledPlayer_) controlledPlayer_ = &players_[10];
+    if (!controlledPlayer_) controlledPlayer_ = &players_[7];
 }
 
 void Team::resetPositions(bool attackingRight) {
@@ -70,18 +69,48 @@ sf::Vector2f Team::formationToWorld(const sf::Vector2f& normalized) const {
 }
 
 void Team::switchToNearestPlayer(const sf::Vector2f& ballPos, bool excludeGK) {
-    Player* best = controlledPlayer_;
+    Player* best = nullptr;
     float bestDist = 99999.f;
 
     for (auto& p : players_) {
         if (excludeGK && p.isGoalkeeper()) continue;
+        if (&p == controlledPlayer_) continue;
         float d = length(p.getPosition() - ballPos);
         if (d < bestDist) {
             bestDist = d;
             best = &p;
         }
     }
-    controlledPlayer_ = best;
+    if (best) controlledPlayer_ = best;
+}
+
+void Team::switchToNextOutfieldPlayer() {
+    if (players_.empty()) return;
+
+    int startIdx = 0;
+    for (int i = 0; i < PLAYERS_PER_TEAM; ++i) {
+        if (&players_[i] == controlledPlayer_) {
+            startIdx = i;
+            break;
+        }
+    }
+
+    for (int step = 1; step < PLAYERS_PER_TEAM; ++step) {
+        int idx = (startIdx + step) % PLAYERS_PER_TEAM;
+        if (!players_[idx].isGoalkeeper()) {
+            controlledPlayer_ = &players_[idx];
+            return;
+        }
+    }
+}
+
+void Team::switchToBallHolder() {
+    for (auto& p : players_) {
+        if (!p.isGoalkeeper()) {
+            controlledPlayer_ = &p;
+            return;
+        }
+    }
 }
 
 Player* Team::getGoalkeeper() {

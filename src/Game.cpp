@@ -5,6 +5,7 @@
 #include <SFML/Window/Keyboard.hpp>
 #include <cmath>
 #include <algorithm>
+#include <cstdlib>
 
 using namespace Constants;
 
@@ -12,9 +13,10 @@ Game::Game()
     : window_(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Football 11v11", sf::Style::Close)
     , homeTeam_(TeamSide::Home, "Blue FC")
     , awayTeam_(TeamSide::Away, "Red United")
-    , state_(MatchState::Kickoff)
+    , state_(MatchState::MainMenu)
     , kickoffTeam_(TeamSide::Home)
-    , stateTimer_(KICKOFF_DELAY)
+    , lastTouchTeam_(TeamSide::Home)
+    , stateTimer_(0.f)
     , matchTime_(0.f)
     , half_(1)
     , cameraCenter_(FIELD_LENGTH / 2.f, FIELD_WIDTH / 2.f)
@@ -26,19 +28,30 @@ Game::Game()
     , longPassPressed_(false)
     , tacklePressed_(false)
     , switchPressed_(false)
+    , startPressed_(false)
+    , restartPressed_(false)
+    , oobCooldown_(0.f)
 {
     window_.setFramerateLimit(60);
     renderer_ = std::make_unique<Renderer>();
+}
 
+Game::~Game() = default;
+
+void Game::startNewMatch() {
+    stats_.reset();
+    homeTeam_.resetScore();
+    awayTeam_.resetScore();
+    matchTime_ = 0.f;
+    half_ = 1;
+    lastTouchTeam_ = TeamSide::Home;
     homeTeam_.resetPositions(true);
     awayTeam_.resetPositions(false);
     resetKickoff(TeamSide::Home);
 }
 
-Game::~Game() = default;
-
 void Game::run() {
-  sf::Clock clock;
+    sf::Clock clock;
     while (window_.isOpen()) {
         float dt = std::min(clock.restart().asSeconds(), 0.05f);
         handleEvents();
@@ -54,19 +67,43 @@ void Game::handleEvents() {
             window_.close();
         }
         if (event.type == sf::Event::KeyPressed) {
-            if (event.key.code == sf::Keyboard::Escape) window_.close();
-            if (event.key.code == sf::Keyboard::P) {
+            if (event.key.code == sf::Keyboard::Escape) {
+                if (state_ == MatchState::MainMenu) window_.close();
+                else if (state_ == MatchState::FullTime) window_.close();
+                else state_ = MatchState::MainMenu;
+            }
+            if (event.key.code == sf::Keyboard::Return || event.key.code == sf::Keyboard::Space) {
+                if (state_ == MatchState::MainMenu) startPressed_ = true;
+            }
+            if (event.key.code == sf::Keyboard::R && state_ == MatchState::FullTime) {
+                restartPressed_ = true;
+            }
+            if (event.key.code == sf::Keyboard::P && state_ != MatchState::MainMenu) {
                 state_ = state_ == MatchState::Paused ? MatchState::Playing : MatchState::Paused;
             }
             if (event.key.code == sf::Keyboard::Q) switchPressed_ = true;
-            if (event.key.code == sf::Keyboard::Space) shootPressed_ = true;
+            if (event.key.code == sf::Keyboard::Tab) {
+                if (state_ == MatchState::Playing)
+                    homeTeam_.switchToNearestPlayer(ball_.getPosition());
+            }
+            if (event.key.code == sf::Keyboard::Space && state_ == MatchState::Playing) shootPressed_ = true;
             if (event.key.code == sf::Keyboard::E) passPressed_ = true;
+            if (event.key.code == sf::Keyboard::R && state_ == MatchState::Playing) longPassPressed_ = true;
             if (event.key.code == sf::Keyboard::LShift || event.key.code == sf::Keyboard::RShift) sprint_ = true;
             if (event.key.code == sf::Keyboard::C) tacklePressed_ = true;
         }
         if (event.type == sf::Event::KeyReleased) {
             if (event.key.code == sf::Keyboard::LShift || event.key.code == sf::Keyboard::RShift) sprint_ = false;
         }
+    }
+}
+
+void Game::recordKickStats(Player& kicker, KickType type) {
+  TeamSide team = kicker.getTeam();
+    if (type == KickType::Shoot) {
+        stats_.recordShot(team);
+    } else {
+        stats_.recordPass(team);
     }
 }
 
@@ -91,7 +128,7 @@ void Game::processInput(float dt) {
     controlled->setMoveInput(moveInput_, sprint_);
 
     if (switchPressed_) {
-        homeTeam_.switchToNearestPlayer(ball_.getPosition());
+        homeTeam_.switchToNextOutfieldPlayer();
         switchPressed_ = false;
     }
 
@@ -99,6 +136,10 @@ void Game::processInput(float dt) {
         Player* owner = ball_.getOwner();
         if (owner && owner->getTeam() != TeamSide::Home) {
             controlled->attemptTackle(ball_, *owner);
+            stats_.recordTackle(TeamSide::Home);
+            if (static_cast<float>(rand()) / RAND_MAX < FOUL_CHANCE && !owner->isGoalkeeper()) {
+                stats_.recordFoul(TeamSide::Home, controlled->getName());
+            }
         }
         tacklePressed_ = false;
     }
@@ -107,23 +148,27 @@ void Game::processInput(float dt) {
 
     if (shootPressed_ && hasBall) {
         sf::Vector2f toGoal(FIELD_LENGTH - controlled->getPosition().x, FIELD_WIDTH / 2.f - controlled->getPosition().y);
-        controlled->kickBall(ball_, toGoal, SHOOT_POWER);
+        controlled->kickBall(ball_, toGoal, SHOOT_POWER, KickType::Shoot);
+        recordKickStats(*controlled, KickType::Shoot);
         shootPressed_ = false;
     } else if (passPressed_ && hasBall) {
         Player* target = AI::findBestPassTarget(*controlled, homeTeam_, awayTeam_);
         if (target) {
             sf::Vector2f dir = target->getPosition() - controlled->getPosition();
-            controlled->kickBall(ball_, dir, PASS_POWER);
+            controlled->kickBall(ball_, dir, PASS_POWER, KickType::Pass);
         } else {
             sf::Vector2f toGoal(FIELD_LENGTH - controlled->getPosition().x, FIELD_WIDTH / 2.f - controlled->getPosition().y);
-            controlled->kickBall(ball_, toGoal, PASS_POWER);
+            controlled->kickBall(ball_, toGoal, PASS_POWER, KickType::Pass);
         }
+        recordKickStats(*controlled, KickType::Pass);
         passPressed_ = false;
     } else if (longPassPressed_ && hasBall) {
-        Player* target = AI::findBestPassTarget(*controlled, homeTeam_, awayTeam_);
+        Player* target = AI::findBestPassTarget(*controlled, homeTeam_, awayTeam_, nullptr, true);
         if (target) {
             sf::Vector2f dir = target->getPosition() - controlled->getPosition();
-            controlled->kickBall(ball_, dir, LONG_PASS_POWER);
+            controlled->kickBall(ball_, dir, LONG_PASS_POWER, KickType::LongPass);
+            recordKickStats(*controlled, KickType::LongPass);
+            stats_.addEvent("Long ball from " + controlled->getName());
         }
         longPassPressed_ = false;
     }
@@ -131,10 +176,117 @@ void Game::processInput(float dt) {
     shootPressed_ = false;
 }
 
+void Game::performKickoffPass() {
+    Team& kicking = kickoffTeam_ == TeamSide::Home ? homeTeam_ : awayTeam_;
+    Player* taker = nullptr;
+    float bestDist = 999.f;
+    sf::Vector2f kickPos = ball_.getPosition();
+
+    for (auto& p : kicking.getPlayers()) {
+        if (p.isGoalkeeper()) continue;
+        float d = length(p.getPosition() - kickPos);
+        if (d < bestDist) { bestDist = d; taker = &p; }
+    }
+    if (!taker) return;
+
+    Player* target = nullptr;
+    for (auto& p : kicking.getPlayers()) {
+        if (&p == taker || p.isGoalkeeper()) continue;
+        target = &p;
+        break;
+    }
+    if (target) {
+        sf::Vector2f dir = target->getPosition() - taker->getPosition();
+        taker->kickBall(ball_, dir, PASS_POWER * 0.7f, KickType::Pass);
+        recordKickStats(*taker, KickType::Pass);
+    }
+}
+
+void Game::performSetPiecePass() {
+    Team& taking = pendingSetPiece_.takingTeam == TeamSide::Home ? homeTeam_ : awayTeam_;
+    Team& other = pendingSetPiece_.takingTeam == TeamSide::Home ? awayTeam_ : homeTeam_;
+    sf::Vector2f pos = pendingSetPiece_.position;
+
+    Player* taker = nullptr;
+    if (pendingSetPiece_.type == OutOfBoundsType::GoalKick) {
+        taker = taking.getGoalkeeper();
+    } else {
+        float bestDist = 999.f;
+        for (auto& p : taking.getPlayers()) {
+            if (p.isGoalkeeper()) continue;
+            float d = length(p.getHomePosition() - pos);
+            if (d < bestDist) { bestDist = d; taker = &p; }
+        }
+    }
+    if (!taker) return;
+
+    sf::Vector2f inward = {FIELD_LENGTH / 2.f - pos.x, FIELD_WIDTH / 2.f - pos.y};
+    inward = normalized(inward);
+    taker->reset(pos + inward * 1.2f);
+
+    sf::Vector2f center(FIELD_LENGTH / 2.f, FIELD_WIDTH / 2.f);
+    float power = PASS_POWER;
+    if (pendingSetPiece_.type == OutOfBoundsType::GoalKick) power = LONG_PASS_POWER * 0.85f;
+    if (pendingSetPiece_.type == OutOfBoundsType::CornerKick) power = PASS_POWER * 1.15f;
+
+    Player* target = AI::findBestPassTarget(*taker, taking, other, nullptr, true);
+    sf::Vector2f dir = target ? target->getPosition() - taker->getPosition() : center - taker->getPosition();
+    if (length(dir) < 0.1f) dir = inward;
+
+    taker->kickBall(ball_, dir, power, KickType::Pass);
+    recordKickStats(*taker, KickType::Pass);
+    oobCooldown_ = OOB_COOLDOWN;
+}
+
+void Game::setupSetPiece(const SetPieceInfo& info) {
+    pendingSetPiece_ = info;
+    ball_.reset(info.position);
+    ball_.setOutOfPlay(true);
+
+    switch (info.type) {
+        case OutOfBoundsType::ThrowIn:
+            state_ = MatchState::ThrowIn;
+            stats_.addEvent("Throw-in");
+            break;
+        case OutOfBoundsType::GoalKick:
+            state_ = MatchState::GoalKick;
+            stats_.addEvent("Goal kick");
+            break;
+        case OutOfBoundsType::CornerKick:
+            state_ = MatchState::CornerKick;
+            stats_.addEvent("Corner kick");
+            break;
+        default:
+            return;
+    }
+    stateTimer_ = SET_PIECE_DELAY;
+}
+
+void Game::checkOutOfBounds() {
+    if (ball_.getOwner() || state_ != MatchState::Playing || oobCooldown_ > 0.f) return;
+
+    SetPieceInfo info = field_.checkOutOfBounds(ball_.getPosition(), lastTouchTeam_);
+    if (info.type == OutOfBoundsType::None) return;
+
+    ball_.setVelocity({0.f, 0.f});
+    ball_.release();
+    setupSetPiece(info);
+}
+
 void Game::update(float dt) {
+    if (state_ == MatchState::MainMenu) {
+        if (startPressed_) {
+            startPressed_ = false;
+            startNewMatch();
+        }
+        return;
+    }
+
     if (state_ == MatchState::Paused) return;
 
-    if (state_ == MatchState::Kickoff || state_ == MatchState::GoalCelebration || state_ == MatchState::HalfTime) {
+    if (state_ == MatchState::Kickoff || state_ == MatchState::GoalCelebration ||
+        state_ == MatchState::HalfTime || state_ == MatchState::ThrowIn ||
+        state_ == MatchState::GoalKick || state_ == MatchState::CornerKick) {
         stateTimer_ -= dt;
         if (stateTimer_ <= 0.f) {
             if (state_ == MatchState::HalfTime) {
@@ -146,8 +298,15 @@ void Game::update(float dt) {
                 resetKickoff(TeamSide::Away);
             } else if (state_ == MatchState::GoalCelebration) {
                 resetKickoff(kickoffTeam_ == TeamSide::Home ? TeamSide::Away : TeamSide::Home);
-            } else {
+            } else if (state_ == MatchState::Kickoff) {
+                performKickoffPass();
                 state_ = MatchState::Playing;
+            } else if (state_ == MatchState::ThrowIn || state_ == MatchState::GoalKick ||
+                       state_ == MatchState::CornerKick) {
+                performSetPiecePass();
+                ball_.setOutOfPlay(false);
+                state_ = MatchState::Playing;
+                oobCooldown_ = OOB_COOLDOWN;
             }
         }
         updateCamera(dt);
@@ -155,26 +314,40 @@ void Game::update(float dt) {
     }
 
     if (state_ == MatchState::FullTime) {
+        if (restartPressed_) {
+            restartPressed_ = false;
+            startNewMatch();
+        }
         updateCamera(dt);
         return;
     }
 
-    // Playing
     matchTime_ += dt;
+    if (oobCooldown_ > 0.f) oobCooldown_ -= dt;
+
+    if (ball_.getOwner()) {
+        stats_.updatePossession(ball_.getOwner()->getTeam(), dt);
+        lastTouchTeam_ = ball_.getOwner()->getTeam();
+    } else if (ball_.getLastKicker()) {
+        lastTouchTeam_ = ball_.getLastTouchTeam();
+    }
+
     if (matchTime_ >= HALF_DURATION && half_ == 1) {
         state_ = MatchState::HalfTime;
         stateTimer_ = 4.f;
+        stats_.addEvent("Half time");
         return;
     }
     if (matchTime_ >= MATCH_DURATION) {
         state_ = MatchState::FullTime;
+        stats_.addEvent("Full time!");
         return;
     }
 
     processInput(dt);
 
-    AI::updateTeam(homeTeam_, awayTeam_, ball_, dt, true);
-    AI::updateTeam(awayTeam_, homeTeam_, ball_, dt, false);
+    AI::updateTeam(homeTeam_, awayTeam_, ball_, dt, true, stats_);
+    AI::updateTeam(awayTeam_, homeTeam_, ball_, dt, false, stats_);
 
     for (auto& p : homeTeam_.getPlayers()) {
         bool ctrl = homeTeam_.getControlledPlayer() == &p;
@@ -187,8 +360,8 @@ void Game::update(float dt) {
     ball_.update(dt, field_);
     updatePossession();
     checkGoals();
+    if (state_ == MatchState::Playing) checkOutOfBounds();
 
-    // Ball-player collisions
     for (auto& p : homeTeam_.getPlayers()) ball_.collideWithPlayer(p);
     for (auto& p : awayTeam_.getPlayers()) ball_.collideWithPlayer(p);
 
@@ -204,7 +377,6 @@ void Game::updatePossession() {
         return;
     }
 
-    // Only allow possession if ball is slow enough
     if (length(ball_.getVelocity()) > 8.f) return;
 
     Player* nearest = nullptr;
@@ -225,6 +397,9 @@ void Game::updatePossession() {
 
     if (nearest) {
         nearest->takePossession(ball_);
+        if (nearest->getTeam() == TeamSide::Home && !nearest->isGoalkeeper()) {
+            homeTeam_.setControlledPlayer(nearest);
+        }
     }
 }
 
@@ -240,6 +415,13 @@ void Game::checkGoals() {
 void Game::scoreGoal(TeamSide scoringTeam) {
     if (state_ == MatchState::GoalCelebration) return;
 
+    std::string scorer = "Unknown";
+    if (ball_.getLastKicker() && ball_.getLastKickType() == KickType::Shoot) {
+        scorer = ball_.getLastKicker()->getName();
+    } else if (ball_.getLastKicker()) {
+        scorer = ball_.getLastKicker()->getName();
+    }
+
     if (scoringTeam == TeamSide::Home) {
         homeTeam_.addGoal();
         kickoffTeam_ = TeamSide::Away;
@@ -248,26 +430,28 @@ void Game::scoreGoal(TeamSide scoringTeam) {
         kickoffTeam_ = TeamSide::Home;
     }
 
+    stats_.recordGoal(scoringTeam, scorer);
     state_ = MatchState::GoalCelebration;
     stateTimer_ = GOAL_CELEBRATION;
     ball_.release();
+    ball_.setOutOfPlay(true);
 }
 
 void Game::resetKickoff(TeamSide kickingTeam) {
     state_ = MatchState::Kickoff;
     stateTimer_ = KICKOFF_DELAY;
+    kickoffTeam_ = kickingTeam;
 
     sf::Vector2f kickPos = field_.getKickoffPosition(kickingTeam);
     ball_.reset(kickPos);
+    ball_.setOutOfPlay(true);
 
-    // Position kickoff players
     Team& kicking = kickingTeam == TeamSide::Home ? homeTeam_ : awayTeam_;
     Team& defending = kickingTeam == TeamSide::Home ? awayTeam_ : homeTeam_;
 
     kicking.resetPositions(kickingTeam == TeamSide::Home ? (half_ == 1) : (half_ == 2));
     defending.resetPositions(kickingTeam == TeamSide::Home ? (half_ == 2) : (half_ == 1));
 
-    // Move kickoff taker near ball
     Player* taker = nullptr;
     float bestDist = 999.f;
     for (auto& p : kicking.getPlayers()) {
@@ -288,14 +472,40 @@ void Game::updateCamera(float dt) {
     sf::Vector2f diff = cameraTarget_ - cameraCenter_;
     cameraCenter_ += diff * CAMERA_SMOOTH * dt;
 
-    // Clamp camera
     float margin = 15.f;
     cameraCenter_.x = std::max(margin, std::min(FIELD_LENGTH - margin, cameraCenter_.x));
     cameraCenter_.y = std::max(margin, std::min(FIELD_WIDTH - margin, cameraCenter_.y));
 }
 
+std::string Game::getStateOverlayMessage() const {
+    switch (state_) {
+        case MatchState::Kickoff: return "KICK OFF";
+        case MatchState::GoalCelebration: {
+            std::string msg = "GOAL!\n" + stats_.getLastScorer();
+            return msg;
+        }
+        case MatchState::HalfTime: return "HALF TIME";
+        case MatchState::FullTime: {
+            return "FULL TIME\n" + std::to_string(homeTeam_.getScore()) +
+                   " - " + std::to_string(awayTeam_.getScore()) +
+                   "\n\nPress R to restart | Esc for menu";
+        }
+        case MatchState::Paused: return "PAUSED";
+        case MatchState::ThrowIn: return "THROW IN";
+        case MatchState::GoalKick: return "GOAL KICK";
+        case MatchState::CornerKick: return "CORNER";
+        default: return "";
+    }
+}
+
 void Game::render() {
     window_.clear(sf::Color(20, 60, 20));
+
+    if (state_ == MatchState::MainMenu) {
+        renderer_->drawMainMenu(window_);
+        window_.display();
+        return;
+    }
 
     renderer_->drawField(window_, field_, cameraCenter_);
 
@@ -307,30 +517,18 @@ void Game::render() {
         p.draw(window_, cameraCenter_, ctrl);
     }
 
+    renderer_->drawPlayerLabels(window_, homeTeam_, awayTeam_, cameraCenter_);
     ball_.draw(window_, cameraCenter_);
     renderer_->drawHUD(window_, *this);
 
-    switch (state_) {
-        case MatchState::Kickoff:
-            renderer_->drawOverlay(window_, "KICK OFF", sf::Color::White);
-            break;
-        case MatchState::GoalCelebration:
-            renderer_->drawOverlay(window_, "GOAL!", sf::Color::Yellow);
-            break;
-        case MatchState::HalfTime:
-            renderer_->drawOverlay(window_, "HALF TIME", sf::Color::White);
-            break;
-        case MatchState::FullTime: {
-            std::string msg = "FULL TIME\n" + std::to_string(homeTeam_.getScore()) +
-                              " - " + std::to_string(awayTeam_.getScore());
-            renderer_->drawOverlay(window_, msg, sf::Color::White);
-            break;
-        }
-        case MatchState::Paused:
-            renderer_->drawOverlay(window_, "PAUSED", sf::Color::White);
-            break;
-        default:
-            break;
+    std::string overlay = getStateOverlayMessage();
+    if (!overlay.empty()) {
+        sf::Color color = state_ == MatchState::GoalCelebration ? sf::Color::Yellow : sf::Color::White;
+        renderer_->drawOverlay(window_, overlay, color);
+    }
+
+    if (state_ == MatchState::FullTime) {
+        renderer_->drawMatchSummary(window_, *this);
     }
 
     window_.display();
