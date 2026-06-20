@@ -3,6 +3,9 @@ build/
 build-win/
 out/
 
+# macOS
+.DS_Store
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
