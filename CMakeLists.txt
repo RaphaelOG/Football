@@ -33,5 +33,15 @@ target_link_libraries(Football11v11 PRIVATE
 )
 
 if(APPLE)
-    target_link_libraries(Football11v11 PRIVATE "-framework IOKit" "-framework Cocoa")
+    target_link_libraries(Football11v11 PRIVATE "-framework OpenGL" "-framework IOKit" "-framework Cocoa")
+    # SFML's macOS binaries look for FreeType at <sfml-build>/Frameworks.
+    add_custom_command(TARGET Football11v11 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_BINARY_DIR}/_deps/sfml-build/Frameworks
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            ${CMAKE_BINARY_DIR}/_deps/sfml-src/extlibs/libs-osx/Frameworks
+            ${CMAKE_BINARY_DIR}/_deps/sfml-build/Frameworks
+    )
+else()
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(Football11v11 PRIVATE OpenGL::GL)
 endif()

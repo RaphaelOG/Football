@@ -110,15 +110,19 @@ bool Field::isInBounds(const sf::Vector2f& pos) const {
     return pos.x >= 0 && pos.x <= FIELD_LENGTH && pos.y >= 0 && pos.y <= FIELD_WIDTH;
 }
 
-bool Field::isGoal(const sf::Vector2f& pos, TeamSide scoringTeam) const {
+static bool inMouth(float y) {
     float goalTop = (FIELD_WIDTH - GOAL_WIDTH) / 2.f;
-    float goalBottom = goalTop + GOAL_WIDTH;
-    if (pos.y < goalTop || pos.y > goalBottom) return false;
+    return y >= goalTop && y <= goalTop + GOAL_WIDTH;
+}
 
-    if (scoringTeam == TeamSide::Home) {
-        return pos.x >= FIELD_LENGTH - 0.5f;
-    }
-    return pos.x <= 0.5f;
+bool Field::inLeftNet(const sf::Vector2f& pos, float height) const {
+    return pos.x < -0.02f && pos.x > -GOAL_DEPTH - 0.3f && inMouth(pos.y)
+        && height <= GOAL_HEIGHT - 0.02f;
+}
+
+bool Field::inRightNet(const sf::Vector2f& pos, float height) const {
+    return pos.x > FIELD_LENGTH + 0.02f && pos.x < FIELD_LENGTH + GOAL_DEPTH + 0.3f && inMouth(pos.y)
+        && height <= GOAL_HEIGHT - 0.02f;
 }
 
 sf::Vector2f Field::clampToBounds(const sf::Vector2f& pos) const {

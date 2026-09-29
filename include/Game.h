@@ -4,9 +4,9 @@
 #include "Ball.h"
 #include "Field.h"
 #include "Constants.h"
-#include "Constants.h"
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <memory>
+#include <string>
 
 using namespace Constants;
 
@@ -46,9 +46,12 @@ private:
     Team awayTeam_;
 
     MatchState state_;
+    MatchState stateBeforePause_;
     TeamSide kickoffTeam_;
+    std::string lastScorer_;
     float stateTimer_;
     float matchTime_;
+    float animTime_;
     int half_;
     sf::Vector2f cameraCenter_;
     sf::Vector2f cameraTarget_;

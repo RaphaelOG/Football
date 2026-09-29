@@ -6,6 +6,7 @@ using namespace Constants;
 
 Player::Player(int id, TeamSide team, Position pos, const std::string& name)
     : id_(id), team_(team), role_(pos), name_(name),
+      facing_(team == TeamSide::Home ? sf::Vector2f(1.f, 0.f) : sf::Vector2f(-1.f, 0.f)),
       stamina_(100.f), tackleCooldown_(0.f), sprinting_(false), controlled_(false) {
     float radius = isGoalkeeper() ? GK_RADIUS : PLAYER_RADIUS;
     shape_.setRadius(radius * PIXELS_PER_METER);
@@ -27,6 +28,7 @@ void Player::reset(const sf::Vector2f& position) {
     stamina_ = 100.f;
     tackleCooldown_ = 0.f;
     sprinting_ = false;
+    facing_ = position_.x <= FIELD_LENGTH * 0.5f ? sf::Vector2f(1.f, 0.f) : sf::Vector2f(-1.f, 0.f);
 }
 
 PlayerRole Player::getRole() const {
@@ -38,7 +40,7 @@ PlayerRole Player::getRole() const {
     }
 }
 
-void Player::update(float dt, bool isControlled) {
+void Player::update(float dt, bool isControlled, bool defendsLeftGoal) {
     controlled_ = isControlled;
     tackleCooldown_ = std::max(0.f, tackleCooldown_ - dt);
 
@@ -69,32 +71,27 @@ void Player::update(float dt, bool isControlled) {
     }
     velocity_ += accel;
 
-    // Friction
-    float speed = length(velocity_);
-    if (speed > 0.01f) {
-        float friction = PLAYER_FRICTION * dt;
-        if (speed <= friction) {
-            velocity_ = {0.f, 0.f};
-        } else {
-            velocity_ = velocity_ - normalized(velocity_) * friction;
-        }
-    }
+    if (length(velocity_) > 0.4f) facing_ = normalized(velocity_);
+    else if (isControlled && length(moveInput_) > 0.1f) facing_ = moveInput_;
 
     position_ += velocity_ * dt;
+    position_.x = std::max(0.6f, std::min(FIELD_LENGTH - 0.6f, position_.x));
+    position_.y = std::max(0.6f, std::min(FIELD_WIDTH - 0.6f, position_.y));
 
-    // Keep on field
-    position_.x = std::max(PLAYER_RADIUS, std::min(FIELD_LENGTH - PLAYER_RADIUS, position_.x));
-    position_.y = std::max(PLAYER_RADIUS, std::min(FIELD_WIDTH - PLAYER_RADIUS, position_.y));
-
-    // GK stays in penalty box
     if (isGoalkeeper()) {
-        float boxDepth = PENALTY_AREA_LENGTH + 2.f;
-        if (team_ == TeamSide::Home) {
-            position_.x = std::min(position_.x, boxDepth);
-        } else {
-            position_.x = std::max(position_.x, FIELD_LENGTH - boxDepth);
-        }
+        float boxDepth = PENALTY_AREA_LENGTH + 1.5f;
+        if (defendsLeftGoal) position_.x = std::min(position_.x, boxDepth);
+        else position_.x = std::max(position_.x, FIELD_LENGTH - boxDepth);
+        float top = (FIELD_WIDTH - PENALTY_AREA_WIDTH) / 2.f - 1.f;
+        float bot = top + PENALTY_AREA_WIDTH + 2.f;
+        position_.y = std::max(top, std::min(bot, position_.y));
     }
+}
+
+void Player::shift(const sf::Vector2f& delta) {
+    position_ += delta;
+    position_.x = std::max(0.6f, std::min(FIELD_LENGTH - 0.6f, position_.x));
+    position_.y = std::max(0.6f, std::min(FIELD_WIDTH - 0.6f, position_.y));
 }
 
 void Player::draw(sf::RenderTarget& target, const sf::Vector2f& cameraCenter, bool isControlled) const {
@@ -135,13 +132,14 @@ void Player::attemptTackle(Ball& ball, Player& opponent) {
 
     if (ball.getOwner() == &opponent) {
         ball.release();
-        ball.kick(-dir, 6.f);
+        ball.kick(-dir, 6.f, 1.4f);
     }
 }
 
-void Player::kickBall(Ball& ball, const sf::Vector2f& direction, float power) {
+void Player::kickBall(Ball& ball, const sf::Vector2f& direction, float power, float loft) {
     if (!hasBall(ball)) return;
-    ball.kick(direction, power);
+    sf::Vector2f dir = length(direction) > 0.1f ? direction : facing_;
+    ball.kick(dir, power, loft);
 }
 
 bool Player::hasBall(const Ball& ball) const {

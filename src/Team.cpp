@@ -3,18 +3,20 @@
 using namespace Constants;
 
 static const FormationSlot FORMATION_442[] = {
-    {Position::GK,  {0.05f, 0.50f}, PlayerRole::Goalkeeper},
-    {Position::LB,  {0.22f, 0.15f}, PlayerRole::Defender},
-    {Position::CB,  {0.18f, 0.38f}, PlayerRole::Defender},
-    {Position::CB,  {0.18f, 0.62f}, PlayerRole::Defender},
-    {Position::RB,  {0.22f, 0.85f}, PlayerRole::Defender},
-    {Position::LM,  {0.40f, 0.15f}, PlayerRole::Midfielder},
-    {Position::CM,  {0.38f, 0.38f}, PlayerRole::Midfielder},
-    {Position::CM,  {0.38f, 0.62f}, PlayerRole::Midfielder},
-    {Position::RM,  {0.40f, 0.85f}, PlayerRole::Midfielder},
-    {Position::ST,  {0.58f, 0.38f}, PlayerRole::Striker},
-    {Position::ST,  {0.58f, 0.62f}, PlayerRole::Striker},
+    {Position::GK,  {0.045f, 0.50f}, PlayerRole::Goalkeeper},
+    {Position::LB,  {0.20f, 0.12f}, PlayerRole::Defender},
+    {Position::CB,  {0.16f, 0.36f}, PlayerRole::Defender},
+    {Position::CB,  {0.16f, 0.64f}, PlayerRole::Defender},
+    {Position::RB,  {0.20f, 0.88f}, PlayerRole::Defender},
+    {Position::LM,  {0.36f, 0.14f}, PlayerRole::Midfielder},
+    {Position::CM,  {0.34f, 0.38f}, PlayerRole::Midfielder},
+    {Position::CM,  {0.34f, 0.62f}, PlayerRole::Midfielder},
+    {Position::RM,  {0.36f, 0.86f}, PlayerRole::Midfielder},
+    {Position::ST,  {0.47f, 0.38f}, PlayerRole::Striker},
+    {Position::ST,  {0.47f, 0.62f}, PlayerRole::Striker},
 };
+static_assert(sizeof(FORMATION_442) / sizeof(FORMATION_442[0]) == PLAYERS_PER_TEAM,
+              "4-4-2 must field 11 players");
 
 static const char* HOME_NAMES[] = {
     "Martinez", "Walker", "Stones", "Dias", "Robertson",

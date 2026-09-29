@@ -19,13 +19,14 @@ public:
     Player(int id, TeamSide team, Position pos, const std::string& name);
 
     void reset(const sf::Vector2f& position);
-    void update(float dt, bool isControlled);
+    void update(float dt, bool isControlled, bool defendsLeftGoal);
     void draw(sf::RenderTarget& target, const sf::Vector2f& cameraCenter, bool isControlled) const;
 
     void setTargetPosition(const sf::Vector2f& target);
     void setMoveInput(const sf::Vector2f& input, bool sprint);
+    void shift(const sf::Vector2f& delta);
     void attemptTackle(Ball& ball, Player& opponent);
-    void kickBall(Ball& ball, const sf::Vector2f& direction, float power);
+    void kickBall(Ball& ball, const sf::Vector2f& direction, float power, float loft = 0.f);
     bool hasBall(const Ball& ball) const;
     void takePossession(Ball& ball);
 
@@ -36,7 +37,9 @@ public:
     sf::Vector2f getTargetPosition() const { return targetPosition_; }
 
     int getId() const { return id_; }
+    int getSquadNumber() const { return id_ + 1; }
     TeamSide getTeam() const { return team_; }
+    sf::Vector2f getFacing() const { return facing_; }
     Position getPositionRole() const { return role_; }
     PlayerRole getRole() const;
     const std::string& getName() const { return name_; }
@@ -55,6 +58,7 @@ private:
     sf::Vector2f homePosition_;
     sf::Vector2f targetPosition_;
     sf::Vector2f moveInput_;
+    sf::Vector2f facing_;
 
     float stamina_;
     float tackleCooldown_;

@@ -30,10 +30,15 @@ if(error_code)
   message(FATAL_ERROR "Failed to remove directory: '/Users/raphaelogundare/Desktop/FootBall/build/_deps/sfml-src'")
 endif()
 
-# try the clone 3 times in case there is an odd git clone issue
+# try the clone 1 + N times in case there is an odd git clone issue
 set(error_code 1)
 set(number_of_tries 0)
-while(error_code AND number_of_tries LESS 3)
+math(EXPR max_tries "1 + 2")
+while(error_code AND number_of_tries LESS ${max_tries})
+  if(number_of_tries GREATER 0 AND 0 GREATER 0)
+    message(STATUS "Retry #${number_of_tries}, waiting 0 seconds before next attempt...")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E sleep 0)
+  endif()
   execute_process(
     COMMAND "/usr/bin/git"
             clone --no-checkout --depth 1 --no-single-branch --config "advice.detachedHead=false" "https://github.com/SFML/SFML.git" "sfml-src"
@@ -47,7 +52,7 @@ if(number_of_tries GREATER 1)
   message(NOTICE "Had to git clone more than once: ${number_of_tries} times.")
 endif()
 if(error_code)
-  message(FATAL_ERROR "Failed to clone repository: 'https://github.com/SFML/SFML.git'")
+  message(FATAL_ERROR "Failed to clone repository:\n  'https://github.com/SFML/SFML.git'")
 endif()
 
 execute_process(

@@ -10,7 +10,8 @@ namespace Constants {
 constexpr float FIELD_LENGTH = 105.0f;
 constexpr float FIELD_WIDTH  = 68.0f;
 constexpr float GOAL_WIDTH   = 7.32f;
-constexpr float GOAL_DEPTH   = 2.5f;
+constexpr float GOAL_HEIGHT  = 2.44f;
+constexpr float GOAL_DEPTH   = 2.4f;
 constexpr float PENALTY_AREA_LENGTH = 16.5f;
 constexpr float PENALTY_AREA_WIDTH  = 40.32f;
 constexpr float GOAL_AREA_LENGTH    = 5.5f;
