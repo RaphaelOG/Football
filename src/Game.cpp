@@ -24,6 +24,10 @@ Game::Game()
     , cameraCenter_(FIELD_LENGTH / 2.f, FIELD_WIDTH / 2.f)
     , cameraTarget_(cameraCenter_)
     , moveInput_(0.f, 0.f)
+    , keyUp_(false)
+    , keyDown_(false)
+    , keyLeft_(false)
+    , keyRight_(false)
     , sprint_(false)
     , shootPressed_(false)
     , passPressed_(false)
@@ -32,6 +36,7 @@ Game::Game()
     , switchPressed_(false)
 {
     window_.setFramerateLimit(60);
+    window_.setKeyRepeatEnabled(false);
     renderer_ = std::make_unique<Renderer>();
 
     homeTeam_.resetPositions(true);
@@ -57,7 +62,27 @@ void Game::handleEvents() {
         if (event.type == sf::Event::Closed) {
             window_.close();
         }
-        if (event.type == sf::Event::KeyPressed) {
+        if (event.type == sf::Event::LostFocus) {
+            keyUp_ = keyDown_ = keyLeft_ = keyRight_ = false;
+            sprint_ = false;
+        }
+        if (event.type == sf::Event::KeyPressed || event.type == sf::Event::KeyReleased) {
+            bool down = event.type == sf::Event::KeyPressed;
+            switch (event.key.code) {
+                case sf::Keyboard::W:
+                case sf::Keyboard::Up:    keyUp_ = down; break;
+                case sf::Keyboard::S:
+                case sf::Keyboard::Down:  keyDown_ = down; break;
+                case sf::Keyboard::A:
+                case sf::Keyboard::Left:  keyLeft_ = down; break;
+                case sf::Keyboard::D:
+                case sf::Keyboard::Right: keyRight_ = down; break;
+                case sf::Keyboard::LShift:
+                case sf::Keyboard::RShift: sprint_ = down; break;
+                default: break;
+            }
+            if (!down) continue;
+
             if (event.key.code == sf::Keyboard::Escape) window_.close();
             if (event.key.code == sf::Keyboard::P) {
                 if (state_ == MatchState::Paused) state_ = stateBeforePause_;
@@ -70,11 +95,7 @@ void Game::handleEvents() {
             if (event.key.code == sf::Keyboard::Space) shootPressed_ = true;
             if (event.key.code == sf::Keyboard::E) passPressed_ = true;
             if (event.key.code == sf::Keyboard::F) longPassPressed_ = true;
-            if (event.key.code == sf::Keyboard::LShift || event.key.code == sf::Keyboard::RShift) sprint_ = true;
             if (event.key.code == sf::Keyboard::C) tacklePressed_ = true;
-        }
-        if (event.type == sf::Event::KeyReleased) {
-            if (event.key.code == sf::Keyboard::LShift || event.key.code == sf::Keyboard::RShift) sprint_ = false;
         }
     }
 }
@@ -82,19 +103,13 @@ void Game::handleEvents() {
 void Game::processInput(float dt) {
     (void)dt;
     moveInput_ = {0.f, 0.f};
-
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
-        moveInput_.y -= 1.f;
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::S) || sf::Keyboard::isKeyPressed(sf::Keyboard::Down))
-        moveInput_.y += 1.f;
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
-        moveInput_.x -= 1.f;
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Right))
-        moveInput_.x += 1.f;
+    // The camera looks up the pitch, so W moves away from the camera.
+    if (keyUp_) moveInput_.y += 1.f;
+    if (keyDown_) moveInput_.y -= 1.f;
+    if (keyLeft_) moveInput_.x -= 1.f;
+    if (keyRight_) moveInput_.x += 1.f;
 
     if (length(moveInput_) > 0.f) moveInput_ = normalized(moveInput_);
-    sprint_ = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift)
-           || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
 
     Player* controlled = homeTeam_.getControlledPlayer();
     if (!controlled) return;
@@ -184,6 +199,14 @@ void Game::update(float dt) {
             } else {
                 state_ = MatchState::Playing;
             }
+        }
+        // The kickoff banner used to freeze everyone, so WASD did nothing until it ended.
+        if (state_ == MatchState::Kickoff) {
+            processInput(dt);
+            if (Player* controlled = homeTeam_.getControlledPlayer()) {
+                controlled->update(dt, true, homeTeam_.attacksRight());
+            }
+            ball_.update(dt, field_);
         }
         updateCamera(dt);
         return;
@@ -331,6 +354,9 @@ void Game::resetKickoff(TeamSide kickingTeam) {
 
 void Game::updateCamera(float dt) {
     cameraTarget_ = ball_.getPosition();
+    if (const Player* controlled = homeTeam_.getControlledPlayer()) {
+        cameraTarget_ = ball_.getPosition() * 0.35f + controlled->getPosition() * 0.65f;
+    }
     sf::Vector2f diff = cameraTarget_ - cameraCenter_;
     cameraCenter_ += diff * CAMERA_SMOOTH * dt;
 

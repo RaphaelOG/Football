@@ -56,8 +56,13 @@ private:
     sf::Vector2f cameraCenter_;
     sf::Vector2f cameraTarget_;
 
-    // Input state
+    // Input state. Held keys come from window events, not the OS keyboard
+    // poll, which does not report WASD for this OpenGL window on macOS.
     sf::Vector2f moveInput_;
+    bool keyUp_;
+    bool keyDown_;
+    bool keyLeft_;
+    bool keyRight_;
     bool sprint_;
     bool shootPressed_;
     bool passPressed_;
