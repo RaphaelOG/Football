@@ -74,9 +74,9 @@ void Game::handleEvents() {
                 case sf::Keyboard::S:
                 case sf::Keyboard::Down:  keyDown_ = down; break;
                 case sf::Keyboard::A:
-                case sf::Keyboard::Left:  keyLeft_ = down; break;
+                case sf::Keyboard::Left:  keyRight_ = down; break;
                 case sf::Keyboard::D:
-                case sf::Keyboard::Right: keyRight_ = down; break;
+                case sf::Keyboard::Right: keyLeft_ = down; break;
                 case sf::Keyboard::LShift:
                 case sf::Keyboard::RShift: sprint_ = down; break;
                 default: break;
